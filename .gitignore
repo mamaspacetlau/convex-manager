@@ -1,0 +1,24 @@
+# Dependency directories
+node_modules/
+vendor/
+projects/
+
+# Build / dist folders
+dist/
+build/
+out/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment and secrets
+.env
+.env.local
+
+# Powershell scripts you don't want in Git
+*.ps1
+
+# OS‑specific
+.DS_Store
+Thumbs.db
