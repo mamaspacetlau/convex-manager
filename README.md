@@ -2,7 +2,11 @@
 
 A self-hosted project manager for [Convex](https://convex.dev/). This tool allows you to spin up multiple local Convex instances using Docker Compose, each with its own backend, dashboard, and database.
 
-!\[Convex Manager Screenshot]\(frontend/public/workmark.png null) <!-- Update with actual screenshot if available -->
+<p align="center">
+  <img src="screenshots/08-manager_multiple-projects.png" alt="Convex Manager Home" width="800">
+  <br>
+  <img src="screenshots/08-manager_multiple-projects-light.png" alt="Convex Manager Home Light Mode" width="800">
+</p>
 
 ## Features
 
@@ -12,6 +16,32 @@ A self-hosted project manager for [Convex](https://convex.dev/). This tool allow
 - **Dashboard Integration**: One-click access to the Convex Dashboard for each instance.
 - **Real-time Status**: Live status updates and log streaming.
 - **Configuration Overrides**: Customize Convex instance environment variables (e.g., Auth, Auth0, Clerk integration).
+
+## Screenshots
+
+<details>
+<summary>Click to view more screenshots</summary>
+
+### Authentication
+
+<p align="center">
+  <img src="screenshots/03-manager_login.png" alt="Login" width="400">
+  <img src="screenshots/01-manager_register.png" alt="Register" width="400">
+</p>
+
+### Creating Projects
+
+<p align="center">
+  <img src="screenshots/05-manager_new-project.png" alt="New Project Modal" width="600">
+</p>
+
+### Project Settings & Configuration
+
+<p align="center">
+  <img src="screenshots/07-manager_project-settings.png" alt="Project Settings" width="600">
+</p>
+
+</details>
 
 ## Architecture
 
@@ -92,7 +122,6 @@ We provide pre-built Docker images hosted on Docker Hub. This is the fastest way
    mkdir convex-manager && cd convex-manager
    curl -O https://raw.githubusercontent.com/mamaspacetlau/convex-manager/main/docker-compose.prod.yml
    ```
-   <br />
 2. **Configure Environment (Optional)**:
    By default, the compose file uses secure defaults. To customize (e.g., setting a custom JWT secret or Email SMTP settings), create an `.env` file in the same directory:
    ```env
