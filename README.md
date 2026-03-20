@@ -141,8 +141,47 @@ We provide pre-built Docker images hosted on Docker Hub. This is the fastest way
    docker compose -f docker-compose.prod.yml up -d
    ```
 4. **Access the Manager**:
-   Navigate to `http://<your-server-ip>:8080` in your browser.
+   Navigate to `http://<your-server-ip>:8080` in your browser. 
    - *Note: It may take a few seconds for the database to initialize on the first run.*
+
+### Using a Reverse Proxy (Traefik)
+
+If you already have Traefik running on your VPS, you can easily expose Convex Manager by adding labels to the `manager-frontend` service in your `docker-compose.prod.yml`:
+
+```yaml
+  manager-frontend:
+    image: motionninja/convex-manager-frontend:latest
+    container_name: convex-manager-frontend
+    # Remove the 'ports' section if using Traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.convex-manager.rule=Host(`manager.yourdomain.com`)"
+      - "traefik.http.routers.convex-manager.entrypoints=websecure"
+      - "traefik.http.routers.convex-manager.tls.certresolver=myresolver" # Change to your resolver name
+      - "traefik.http.services.convex-manager.loadbalancer.server.port=80"
+    networks:
+      - convex-manager
+      - traefik_proxy # Your external Traefik network
+```
+*Don't forget to declare the external `traefik_proxy` network at the bottom of the compose file if you use this method.*
+
+#### Exposing Individual Convex Projects via Traefik
+
+Convex Manager allows you to dynamically generate Traefik routing labels for the individual Convex instances you create. 
+
+When creating or editing a project in the Convex Manager UI, add the following keys to the **Configuration Overrides** JSON:
+
+```json
+{
+  "traefik_enabled": "true",
+  "traefik_network": "traefik_proxy",
+  "traefik_certresolver": "myresolver",
+  "traefik_backend_rule": "api.myproject.yourdomain.com",
+  "traefik_site_rule": "site.myproject.yourdomain.com",
+  "traefik_dashboard_rule": "dashboard.myproject.yourdomain.com"
+}
+```
+*Note: You only need to provide the raw domain names. The backend automatically wraps them in `Host()` rules. You do not need to provide all three rules. Only the services you specify a rule for will be exposed via Traefik.*
 
 ### Managing the Stack
 

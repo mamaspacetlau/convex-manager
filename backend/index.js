@@ -1,9 +1,10 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
-const path = require('path');
 const bcrypt = require('bcryptjs');
 const { getNextAvailablePorts } = require('./ports');
 const { generateTemplate } = require('./template');

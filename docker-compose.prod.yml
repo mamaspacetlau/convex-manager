@@ -58,11 +58,18 @@ services:
     container_name: convex-manager-frontend
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.convex-manager.rule=Host(`manager.yourdomain.com`)"
+    #   - "traefik.http.routers.convex-manager.entrypoints=websecure"
+    #   - "traefik.http.routers.convex-manager.tls.certresolver=myresolver"
+    #   - "traefik.http.services.convex-manager.loadbalancer.server.port=80"
     depends_on:
       - manager-backend
     restart: unless-stopped
     networks:
       - convex-manager
+      # - traefik_proxy # Add your traefik network here if needed
 
 volumes:
   manager-db-data:

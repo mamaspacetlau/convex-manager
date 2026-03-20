@@ -6,7 +6,13 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
   const [overrides, setOverrides] = useState({
     convex_cloud_origin: '',
     convex_site_origin: '',
-    dashboard_url: ''
+    dashboard_url: '',
+    traefik_enabled: false,
+    traefik_network: '',
+    traefik_certresolver: '',
+    traefik_backend_rule: '',
+    traefik_site_rule: '',
+    traefik_dashboard_rule: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +28,13 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
       setOverrides({
         convex_cloud_origin: '',
         convex_site_origin: '',
-        dashboard_url: ''
+        dashboard_url: '',
+        traefik_enabled: false,
+        traefik_network: '',
+        traefik_certresolver: '',
+        traefik_backend_rule: '',
+        traefik_site_rule: '',
+        traefik_dashboard_rule: ''
       });
       setError('');
       setNeedsOverwriteConfirmation(false);
@@ -45,6 +57,59 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
     }
   };
 
+  const extractHostFromRule = (rule) => {
+    if (!rule) return '';
+    // Support both raw domains and Traefik Host() rules for backward compatibility
+    if (rule.startsWith('Host(')) {
+      const match = rule.match(/Host\(['"`](.*?)['"`]\)/i);
+      return match ? match[1] : '';
+    }
+    return rule.trim(); // Assume it's just a raw domain
+  };
+
+  const handleTraefikRuleChange = (field, value) => {
+    const newOverrides = { ...overrides, [field]: value };
+    
+    // Auto-fill origin URLs if a valid Host is found
+    const host = extractHostFromRule(value);
+    if (host) {
+      // Use https if certresolver is provided, otherwise http
+      const protocol = newOverrides.traefik_certresolver ? 'https://' : 'http://';
+      
+      if (field === 'traefik_backend_rule') {
+        newOverrides.convex_cloud_origin = `${protocol}${host}`;
+      } else if (field === 'traefik_site_rule') {
+        newOverrides.convex_site_origin = `${protocol}${host}`;
+      } else if (field === 'traefik_dashboard_rule') {
+        newOverrides.dashboard_url = `${protocol}${host}`;
+      }
+    }
+    
+    setOverrides(newOverrides);
+  };
+
+  const handleCertResolverChange = (value) => {
+    const newOverrides = { ...overrides, traefik_certresolver: value };
+    
+    // If certresolver changes, update the protocol of auto-filled URLs
+    const protocol = value ? 'https://' : 'http://';
+    
+    if (overrides.traefik_backend_rule) {
+      const host = extractHostFromRule(overrides.traefik_backend_rule);
+      if (host) newOverrides.convex_cloud_origin = `${protocol}${host}`;
+    }
+    if (overrides.traefik_site_rule) {
+      const host = extractHostFromRule(overrides.traefik_site_rule);
+      if (host) newOverrides.convex_site_origin = `${protocol}${host}`;
+    }
+    if (overrides.traefik_dashboard_rule) {
+      const host = extractHostFromRule(overrides.traefik_dashboard_rule);
+      if (host) newOverrides.dashboard_url = `${protocol}${host}`;
+    }
+    
+    setOverrides(newOverrides);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -65,8 +130,16 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
 
     try {
       const cleanOverrides = Object.fromEntries(
-        Object.entries(overrides).filter(([_, v]) => v.trim() !== '')
+        Object.entries(overrides).filter(([k, v]) => {
+          if (typeof v === 'boolean') return true;
+          return v && v.trim() !== '';
+        })
       );
+      // Ensure boolean is stringified for backend logic
+      if (cleanOverrides.traefik_enabled !== undefined) {
+        cleanOverrides.traefik_enabled = String(cleanOverrides.traefik_enabled);
+      }
+      
       await onCreate(name.trim(), cleanOverrides, needsOverwriteConfirmation);
       // On success, the App component will close the modal and refresh
     } catch (err) {
@@ -127,7 +200,103 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
           </div>
 
           <div className="border-t border-borderGray pt-4">
-            <h3 className="text-sm font-medium text-foreground mb-4">Optional Configurations</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-foreground">Traefik Reverse Proxy</h3>
+              <label className="flex items-center cursor-pointer">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={overrides.traefik_enabled}
+                    onChange={(e) => setOverrides({...overrides, traefik_enabled: e.target.checked})}
+                    disabled={isSubmitting}
+                  />
+                  <div className={`block w-10 h-6 rounded-full transition-colors ${overrides.traefik_enabled ? 'bg-convexOrange' : 'bg-borderGray'}`}></div>
+                  <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${overrides.traefik_enabled ? 'transform translate-x-4' : ''}`}></div>
+                </div>
+                <span className="ml-3 text-sm font-medium text-muted-foreground">
+                  Enable
+                </span>
+              </label>
+            </div>
+            
+            {overrides.traefik_enabled && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      Traefik Network (e.g. traefik_proxy)
+                    </label>
+                    <input
+                      type="text"
+                      value={overrides.traefik_network}
+                      onChange={(e) => setOverrides({...overrides, traefik_network: e.target.value})}
+                      disabled={isSubmitting}
+                      placeholder="traefik_proxy"
+                      className="w-full bg-background border border-borderGray rounded-md px-3 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:border-convexOrange text-sm disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      CertResolver (e.g. myresolver)
+                    </label>
+                    <input
+                      type="text"
+                      value={overrides.traefik_certresolver}
+                      onChange={(e) => handleCertResolverChange(e.target.value)}
+                      disabled={isSubmitting}
+                      placeholder="myresolver"
+                      className="w-full bg-background border border-borderGray rounded-md px-3 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:border-convexOrange text-sm disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Backend Domain
+                  </label>
+                  <input
+                    type="text"
+                    value={overrides.traefik_backend_rule}
+                    onChange={(e) => handleTraefikRuleChange('traefik_backend_rule', e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="api.myproject.com"
+                    className="w-full bg-background border border-borderGray rounded-md px-3 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:border-convexOrange text-sm disabled:opacity-50 font-mono"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Site Domain
+                  </label>
+                  <input
+                    type="text"
+                    value={overrides.traefik_site_rule}
+                    onChange={(e) => handleTraefikRuleChange('traefik_site_rule', e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="site.myproject.com"
+                    className="w-full bg-background border border-borderGray rounded-md px-3 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:border-convexOrange text-sm disabled:opacity-50 font-mono"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    Dashboard Domain
+                  </label>
+                  <input
+                    type="text"
+                    value={overrides.traefik_dashboard_rule}
+                    onChange={(e) => handleTraefikRuleChange('traefik_dashboard_rule', e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="dashboard.myproject.com"
+                    className="w-full bg-background border border-borderGray rounded-md px-3 py-2 text-foreground placeholder-muted-foreground focus:outline-none focus:border-convexOrange text-sm disabled:opacity-50 font-mono"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {!overrides.traefik_enabled && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">
@@ -171,7 +340,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
                 />
               </div>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-borderGray mt-6">
             <button
