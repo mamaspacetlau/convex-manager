@@ -1,11 +1,43 @@
 const yaml = require('js-yaml');
 
+function sanitizeValue(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  return value.trim().replace(/^`+|`+$/g, '');
+}
+
+function sanitizeUrl(value) {
+  const cleaned = sanitizeValue(value);
+  return cleaned || '';
+}
+
+function sanitizeTraefikRule(value) {
+  const cleaned = sanitizeValue(value);
+  if (!cleaned) {
+    return '';
+  }
+
+  if (cleaned.startsWith('Host(')) {
+    const hostMatch = cleaned.match(/^Host\((.*)\)$/);
+    if (!hostMatch) {
+      return cleaned;
+    }
+
+    const host = sanitizeValue(hostMatch[1]).replace(/^['"]+|['"]+$/g, '');
+    return host ? `Host(\`${host}\`)` : '';
+  }
+
+  return `Host(\`${cleaned}\`)`;
+}
+
 function generateTemplate(name, config) {
   const { backendPort, siteProxyPort, dashboardPort, overrides = {} } = config;
   
-  const cloudOrigin = overrides.convex_cloud_origin || `http://127.0.0.1:${backendPort}`;
-  const siteOrigin = overrides.convex_site_origin || `http://127.0.0.1:${siteProxyPort}`;
-  const dashboardUrl = overrides.dashboard_url || `http://127.0.0.1:${backendPort}`;
+  const cloudOrigin = sanitizeUrl(overrides.convex_cloud_origin) || `http://127.0.0.1:${backendPort}`;
+  const siteOrigin = sanitizeUrl(overrides.convex_site_origin) || `http://127.0.0.1:${siteProxyPort}`;
+  const dashboardUrl = sanitizeUrl(overrides.dashboard_url) || `http://127.0.0.1:${dashboardPort}`;
 
   const traefikEnabled = overrides.traefik_enabled === 'true' || overrides.traefik_enabled === true;
 
@@ -80,9 +112,7 @@ function generateTemplate(name, config) {
     template.services[`backend-${name}`].labels = [];
     
     if (overrides.traefik_backend_rule) {
-      const rule = overrides.traefik_backend_rule.startsWith('Host') 
-        ? overrides.traefik_backend_rule 
-        : `Host(\`${overrides.traefik_backend_rule}\`)`;
+      const rule = sanitizeTraefikRule(overrides.traefik_backend_rule);
         
       template.services[`backend-${name}`].labels.push(
         `traefik.enable=true`,
@@ -99,9 +129,7 @@ function generateTemplate(name, config) {
     }
 
     if (overrides.traefik_site_rule) {
-      const rule = overrides.traefik_site_rule.startsWith('Host') 
-        ? overrides.traefik_site_rule 
-        : `Host(\`${overrides.traefik_site_rule}\`)`;
+      const rule = sanitizeTraefikRule(overrides.traefik_site_rule);
 
       if (!overrides.traefik_backend_rule) {
         template.services[`backend-${name}`].labels.push(`traefik.enable=true`);
@@ -122,9 +150,7 @@ function generateTemplate(name, config) {
     }
 
     if (overrides.traefik_dashboard_rule) {
-      const rule = overrides.traefik_dashboard_rule.startsWith('Host') 
-        ? overrides.traefik_dashboard_rule 
-        : `Host(\`${overrides.traefik_dashboard_rule}\`)`;
+      const rule = sanitizeTraefikRule(overrides.traefik_dashboard_rule);
 
       template.services[`dashboard-${name}`].labels = [
         `traefik.enable=true`,
