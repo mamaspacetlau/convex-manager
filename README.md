@@ -207,15 +207,126 @@ docker compose restart pangolin
 
 You do **not** need to expose the API publicly. The manager calls it directly over the Docker network at `http://pangolin:3003`.
 
-#### 2. Create an API key and collect your IDs
+#### 2. Collect the values you need
 
-In the Pangolin dashboard:
+You need six values. Run the commands below **on the server that hosts Pangolin**, from the folder where Pangolin's `docker-compose.yml` lives (usually the folder the installer created).
 
-| Value | Where to find it |
+##### a) Pangolin container name → `PANGOLIN_API_URL`
+
+The manager reaches the API at `http://<pangolin container name>:3003`. Find the container name:
+
+```bash
+docker ps --format '{{.Names}}  {{.Image}}' | grep fosrl/pangolin
+# pangolin  docker.io/fosrl/pangolin:1.21.1
+```
+
+The first column is the name. With the default installer it is `pangolin`, so:
+
+```env
+PANGOLIN_API_URL=http://pangolin:3003
+```
+
+Use `http` (traffic stays inside Docker), and do **not** add `/v1`; the manager adds it.
+
+To confirm the port, check Pangolin's `config/config.yml`. The API listens on `server.integration_port`, which defaults to `3003` when the key is absent:
+
+```bash
+grep -n "integration_port\|enable_integration_api" config/config.yml
+```
+
+Test the URL from inside the `pangolin` network. Any HTTP response (even `401`) means the URL is right:
+
+```bash
+docker run --rm --network pangolin alpine wget -qO- http://pangolin:3003/v1/docs >/dev/null && echo "API reachable"
+```
+
+| Output | Meaning |
 |---|---|
-| **API key** | Organization → **API Keys** → create a key with blueprint and resource permissions. Copy the full key (`<id>.<secret>`). |
-| **Org ID** | The first path segment of the dashboard URL: `https://pangolin.yourdomain.com/<orgId>/...` |
-| **Site identifier** | Organization → **Sites** → the site that can reach the manager's containers (usually the **local** site on the same server). Use its **Identifier** (e.g. `thirsty-calamaria-gervaisii`), not its display name, domain, or numeric ID. |
+| `API reachable` or an HTTP error code | URL is correct. |
+| `bad address 'pangolin'` | Wrong container name, or the container is on another network (see [b](#b-docker-network--pangolin-network-in-the-compose-file)). |
+| `Connection refused` | Wrong port, or `enable_integration_api` isn't active yet (restart Pangolin after step 1). |
+
+**Manager on a different server than Pangolin?** It can't use the Docker network, so expose the API publicly as described in [Pangolin's Integration API docs](https://docs.pangolin.net/self-host/advanced/integration-api) (a Traefik route such as `https://api.yourdomain.com`). Then use that address, still without `/v1`:
+
+```env
+PANGOLIN_API_URL=https://api.yourdomain.com
+```
+
+For Pangolin Cloud, use `https://api.pangolin.net`.
+
+##### b) Docker network → `pangolin` network in the compose file
+
+The manager, its projects and Pangolin's proxy must share a Docker network. Find the network Pangolin is on:
+
+```bash
+docker inspect pangolin --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}'
+# pangolin
+```
+
+The default installer creates a network named `pangolin`, which is what `docker-compose.pangolin.yml` uses. If yours has a different name (e.g. `pangolin_default`), change **both** places in `docker-compose.pangolin.yml`:
+
+```yaml
+    environment:
+      - PROJECTS_NETWORK=pangolin_default   # network Convex projects join
+...
+networks:
+  pangolin:
+    name: pangolin_default                  # network the manager joins
+    external: true
+```
+
+##### c) Organization ID → `PANGOLIN_ORG_ID`
+
+Log in to the Pangolin dashboard and open your organization. The org ID is the first part of the URL path:
+
+```
+https://pangolin.yourdomain.com/my-org/settings/resources
+                                └org ID┘
+```
+
+It is also shown in **Settings → General**.
+
+##### d) API key → `PANGOLIN_API_KEY`
+
+1. In the Pangolin dashboard, go to your organization's **Settings → API Keys**.
+2. Click **Generate API Key**, give it a name (e.g. `convex-manager`).
+3. Grant it at least the permissions for **Blueprints** (apply), **Resources** (get, list, delete) and **Sites** (get, list). Granting all permissions also works.
+4. Copy the key immediately. It is shown only once and looks like `<id>.<secret>`:
+   ```env
+   PANGOLIN_API_KEY=abc123def456ghi.jkl789mno012pqr345...
+   ```
+
+Keep it private: anyone with this key can change your Pangolin resources.
+
+##### e) Site identifier → `PANGOLIN_SITE`
+
+The site is the Pangolin connector whose proxy can reach the Convex containers. On a self-hosted install where the manager runs on the Pangolin server, this is the **local** site.
+
+**From the dashboard:** go to **Sites**, open the site, and copy its **Identifier**. It is an auto-generated slug such as `brave-otter-kestrel`. It is *not* the site's display name, its numeric ID, or a domain.
+
+**From the API** (once the API is enabled and you have a key):
+
+```bash
+KEY=<your api key>
+docker run --rm --network pangolin alpine wget -qO- \
+  --header "Authorization: Bearer $KEY" \
+  http://pangolin:3003/v1/org/<orgId>/sites \
+  | grep -o '"\(niceId\|name\|type\)":"[^"]*"' | paste - - -
+# "niceId":"brave-otter-kestrel"  "name":"my-server"  "type":"local"
+# "niceId":"quiet-marmot-falcon"  "name":"remote-box"  "type":"newt"
+```
+
+Use the `niceId` of the `local` site (or of a `newt` site that is on the same Docker network as the manager).
+
+##### f) Manager URL → `APP_URL`
+
+This is the public address where people will open Convex Manager. It is used to build the links in invitation emails, so it must be reachable from outside, over `https`:
+
+```env
+APP_URL=https://manager.yourdomain.com
+```
+
+Pick a hostname under a domain configured in Pangolin (**Settings → Domains**). You create the matching Pangolin resource in [step 5](#5-expose-the-manager-itself).
 
 #### 3. Configure and start Convex Manager
 
@@ -225,12 +336,13 @@ cd convex-manager
 cp .env.example .env
 ```
 
-Add to `.env` (alongside `JWT_SECRET`, SMTP settings, etc.):
+Add the values from step 2 to `.env` (alongside `JWT_SECRET`, SMTP settings, etc.):
 
 ```env
 APP_URL=https://manager.yourdomain.com
 
-PANGOLIN_API_URL=http://pangolin:3003   # Pangolin container name + integration port; no /v1
+# Pangolin container name + integration port (no /v1)
+PANGOLIN_API_URL=http://pangolin:3003
 PANGOLIN_API_KEY=<id>.<secret>
 PANGOLIN_ORG_ID=<orgId>
 PANGOLIN_SITE=<site identifier>
@@ -240,9 +352,8 @@ Start the stack:
 
 ```bash
 docker compose -f docker-compose.pangolin.yml up -d
+docker exec convex-manager-backend env | grep PANGOLIN_ | cut -c1-40   # all four should be listed
 ```
-
-*The compose file expects the external `pangolin` network created by the Pangolin installer. Check with `docker network ls | grep pangolin`.*
 
 #### 4. Verify the connection
 
