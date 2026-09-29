@@ -1,11 +1,12 @@
 {
   "name": "convex-manager-backend",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "description": "Backend for Convex Manager",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "node --test template.test.js pangolin.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

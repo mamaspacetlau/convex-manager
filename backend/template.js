@@ -1,4 +1,5 @@
 const yaml = require('js-yaml');
+const { isTrue, sanitizeDomain, pangolinResources, resourceLabels, isApiConfigured } = require('./pangolin');
 
 function sanitizeValue(value) {
   if (typeof value !== 'string') {
@@ -35,21 +36,33 @@ function sanitizeTraefikRule(value) {
 function generateTemplate(name, config) {
   const { backendPort, siteProxyPort, dashboardPort, overrides = {} } = config;
   
-  const cloudOrigin = sanitizeUrl(overrides.convex_cloud_origin) || `http://127.0.0.1:${backendPort}`;
-  const siteOrigin = sanitizeUrl(overrides.convex_site_origin) || `http://127.0.0.1:${siteProxyPort}`;
-  const dashboardUrl = sanitizeUrl(overrides.dashboard_url) || `http://127.0.0.1:${dashboardPort}`;
+  const traefikEnabled = isTrue(overrides.traefik_enabled);
+  const pangolinEnabled = isTrue(overrides.pangolin_enabled);
+  const proxyEnabled = traefikEnabled || pangolinEnabled;
 
-  const traefikEnabled = overrides.traefik_enabled === 'true' || overrides.traefik_enabled === true;
+  const pangolinBackendDomain = pangolinEnabled ? sanitizeDomain(overrides.pangolin_backend_domain) : '';
+  const pangolinSiteDomain = pangolinEnabled ? sanitizeDomain(overrides.pangolin_site_domain) : '';
+  const pangolinDashboardDomain = pangolinEnabled ? sanitizeDomain(overrides.pangolin_dashboard_domain) : '';
+
+  // Pangolin always terminates TLS, so default the origins to the https domains
+  const cloudOrigin = sanitizeUrl(overrides.convex_cloud_origin)
+    || (pangolinBackendDomain && `https://${pangolinBackendDomain}`)
+    || `http://127.0.0.1:${backendPort}`;
+  const siteOrigin = sanitizeUrl(overrides.convex_site_origin)
+    || (pangolinSiteDomain && `https://${pangolinSiteDomain}`)
+    || `http://127.0.0.1:${siteProxyPort}`;
+  const dashboardUrl = sanitizeUrl(overrides.dashboard_url)
+    || (pangolinDashboardDomain && `https://${pangolinDashboardDomain}`)
+    || `http://127.0.0.1:${dashboardPort}`;
 
   const template = {
-    version: '3.8',
     services: {
       [`backend-${name}`]: {
         image: 'ghcr.io/get-convex/convex-backend:latest',
         stop_grace_period: '10s',
         stop_signal: 'SIGINT',
         restart: 'unless-stopped',
-        ...(traefikEnabled ? {} : {
+        ...(proxyEnabled ? {} : {
           ports: [
             `${backendPort}:3210`,
             `${siteProxyPort}:3211`
@@ -84,7 +97,7 @@ function generateTemplate(name, config) {
         stop_grace_period: '10s',
         stop_signal: 'SIGINT',
         restart: 'unless-stopped',
-        ...(traefikEnabled ? {} : {
+        ...(proxyEnabled ? {} : {
           ports: [
             `${dashboardPort}:6791`
           ]
@@ -99,7 +112,7 @@ function generateTemplate(name, config) {
     },
     networks: {
       default: {
-        name: 'convex-manager',
+        name: process.env.PROJECTS_NETWORK || 'convex-manager',
         external: true
       }
     },
@@ -170,6 +183,14 @@ function generateTemplate(name, config) {
       template.networks[overrides.traefik_network] = { external: true };
       template.services[`backend-${name}`].networks = ['default', overrides.traefik_network];
       template.services[`dashboard-${name}`].networks = ['default', overrides.traefik_network];
+    }
+  }
+
+  // Labels are for a Newt site reading the Docker socket; with the Integration API configured the
+  // manager applies the same resources as a blueprint instead (see pangolin.js).
+  if (pangolinEnabled && !isApiConfigured()) {
+    for (const { key, service, resource } of pangolinResources(name, overrides)) {
+      template.services[service].labels = [...(template.services[service].labels || []), ...resourceLabels(key, resource)];
     }
   }
 

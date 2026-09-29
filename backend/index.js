@@ -8,6 +8,7 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { getNextAvailablePorts } = require('./ports');
 const { generateTemplate } = require('./template');
+const { syncProjectResources, removeProjectResources } = require('./pangolin');
 const { initDB, ProjectConfig, VerificationCode, Invitation } = require('./db');
 const {
   upProject,
@@ -23,6 +24,18 @@ const { findUserByUsername, findUserByEmail, findUserByIdentifier, createUser, h
 const { generateToken, generateRefreshToken, verifyToken, authenticateToken, requireAdmin } = require('./auth');
 const { sendVerificationCode, sendPasswordResetCode, sendInvitationLink } = require('./mailer');
 const crypto = require('crypto');
+
+// Pangolin sync is best-effort: the project itself is already up, so report failures instead of rolling back
+async function syncPangolin(name, overrides) {
+  try {
+    const result = await syncProjectResources(name, overrides);
+    if (result) console.log(`[Pangolin] ${name}: applied [${result.applied.join(', ')}], removed [${result.removed.join(', ')}]`);
+    return result && { ok: true, ...result };
+  } catch (error) {
+    console.error(`[Pangolin] Failed to sync ${name}:`, error.message);
+    return { ok: false, error: error.message };
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -510,7 +523,9 @@ app.post('/api/projects', requireAdmin, async (req, res) => {
     // Run docker compose up
     await upProject(slug);
 
-    res.json({ message: 'Project created successfully', project: config });
+    const pangolin = await syncPangolin(slug, cleanOverrides);
+
+    res.json({ message: 'Project created successfully', project: config, pangolin });
   } catch (error) {
     console.error(`Failed to create project ${slug}:`, error);
     // Cleanup if failed
@@ -550,8 +565,16 @@ app.delete('/api/projects/:name', requireAdmin, async (req, res) => {
     }
     
     await ProjectConfig.destroy({ where: { name } });
+
+    let pangolin = null;
+    try {
+      pangolin = await removeProjectResources(name);
+    } catch (error) {
+      console.error(`[Pangolin] Failed to remove resources for ${name}:`, error.message);
+      pangolin = { ok: false, error: error.message };
+    }
     
-    res.json({ message: 'Project deleted successfully' });
+    res.json({ message: 'Project deleted successfully', pangolin });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -617,7 +640,9 @@ app.patch('/api/projects/:name/config', requireAdmin, async (req, res) => {
       }
     }
 
-    res.json({ message: 'Configuration updated', project: dbProject });
+    const pangolin = await syncPangolin(name, newOverrides);
+
+    res.json({ message: 'Configuration updated', project: dbProject, pangolin });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

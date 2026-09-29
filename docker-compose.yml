@@ -24,7 +24,7 @@ services:
     container_name: convex-manager-backend
     environment:
       - NODE_ENV=production
-      - PORT=${BACKEND_PORT:-3001}
+      - PORT=3001
       - DB_HOST=manager-db
       - DB_PORT=5432
       - DB_USER=${DB_USER:-postgres}

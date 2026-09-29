@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { PangolinSettings, PANGOLIN_DEFAULTS, stringifyProxyBooleans } from './PangolinSettings';
 
 export function CreateProjectModal({ isOpen, onClose, onCreate }) {
   const [name, setName] = useState('');
@@ -12,7 +13,8 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
     traefik_certresolver: '',
     traefik_backend_rule: '',
     traefik_site_rule: '',
-    traefik_dashboard_rule: ''
+    traefik_dashboard_rule: '',
+    ...PANGOLIN_DEFAULTS
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +36,8 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
         traefik_certresolver: '',
         traefik_backend_rule: '',
         traefik_site_rule: '',
-        traefik_dashboard_rule: ''
+        traefik_dashboard_rule: '',
+        ...PANGOLIN_DEFAULTS
       });
       setError('');
       setNeedsOverwriteConfirmation(false);
@@ -129,16 +132,13 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
     setLogs([]);
 
     try {
-      const cleanOverrides = Object.fromEntries(
+      // Ensure booleans are stringified for backend logic
+      const cleanOverrides = stringifyProxyBooleans(Object.fromEntries(
         Object.entries(overrides).filter(([k, v]) => {
           if (typeof v === 'boolean') return true;
           return v && v.trim() !== '';
         })
-      );
-      // Ensure boolean is stringified for backend logic
-      if (cleanOverrides.traefik_enabled !== undefined) {
-        cleanOverrides.traefik_enabled = String(cleanOverrides.traefik_enabled);
-      }
+      ));
       
       await onCreate(name.trim(), cleanOverrides, needsOverwriteConfirmation);
       // On success, the App component will close the modal and refresh
@@ -208,7 +208,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
                     type="checkbox"
                     className="sr-only"
                     checked={overrides.traefik_enabled}
-                    onChange={(e) => setOverrides({...overrides, traefik_enabled: e.target.checked})}
+                    onChange={(e) => setOverrides({...overrides, traefik_enabled: e.target.checked, ...(e.target.checked ? { pangolin_enabled: false } : {})})}
                     disabled={isSubmitting}
                   />
                   <div className={`block w-10 h-6 rounded-full transition-colors ${overrides.traefik_enabled ? 'bg-convexOrange' : 'bg-borderGray'}`}></div>
@@ -296,7 +296,9 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }) {
             )}
           </div>
 
-          {!overrides.traefik_enabled && (
+          <PangolinSettings overrides={overrides} onChange={setOverrides} disabled={isSubmitting} />
+
+          {!overrides.traefik_enabled && !overrides.pangolin_enabled && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">

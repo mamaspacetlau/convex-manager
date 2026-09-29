@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { PangolinSettings, PANGOLIN_DEFAULTS, stringifyProxyBooleans } from './PangolinSettings';
 
 export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
   const [overrides, setOverrides] = useState({
@@ -11,7 +12,12 @@ export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
     traefik_certresolver: project?.overrides?.traefik_certresolver || '',
     traefik_backend_rule: project?.overrides?.traefik_backend_rule || '',
     traefik_site_rule: project?.overrides?.traefik_site_rule || '',
-    traefik_dashboard_rule: project?.overrides?.traefik_dashboard_rule || ''
+    traefik_dashboard_rule: project?.overrides?.traefik_dashboard_rule || '',
+    pangolin_enabled: project?.overrides?.pangolin_enabled === 'true' || project?.overrides?.pangolin_enabled === true,
+    pangolin_backend_domain: project?.overrides?.pangolin_backend_domain || '',
+    pangolin_site_domain: project?.overrides?.pangolin_site_domain || '',
+    pangolin_dashboard_domain: project?.overrides?.pangolin_dashboard_domain || '',
+    pangolin_dashboard_sso: project?.overrides?.pangolin_dashboard_sso === 'true' || project?.overrides?.pangolin_dashboard_sso === true
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -67,7 +73,7 @@ export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
   };
 
   const handleToggleTraefik = (e) => {
-    setOverrides({...overrides, traefik_enabled: e.target.checked});
+    setOverrides({...overrides, traefik_enabled: e.target.checked, ...(e.target.checked ? { pangolin_enabled: false } : {})});
   };
 
   const validateUrl = (url) => {
@@ -96,11 +102,8 @@ export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
 
     setIsSubmitting(true);
     try {
-      // Clean and stringify boolean
-      const cleanOverrides = { ...overrides };
-      if (cleanOverrides.traefik_enabled !== undefined) {
-        cleanOverrides.traefik_enabled = String(cleanOverrides.traefik_enabled);
-      }
+      // Clean and stringify booleans
+      const cleanOverrides = stringifyProxyBooleans(overrides);
       
       // Send all overrides, backend will handle removing empty ones
       await onSave(project.name, cleanOverrides);
@@ -122,7 +125,8 @@ export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
       traefik_certresolver: '',
       traefik_backend_rule: '',
       traefik_site_rule: '',
-      traefik_dashboard_rule: ''
+      traefik_dashboard_rule: '',
+      ...PANGOLIN_DEFAULTS
     };
     setOverrides(emptyOverrides);
     
@@ -265,7 +269,9 @@ export function ProjectSettingsModal({ isOpen, onClose, project, onSave }) {
             )}
           </div>
 
-          {!overrides.traefik_enabled && (
+          <PangolinSettings overrides={overrides} onChange={setOverrides} disabled={isSubmitting} />
+
+          {!overrides.traefik_enabled && !overrides.pangolin_enabled && (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">

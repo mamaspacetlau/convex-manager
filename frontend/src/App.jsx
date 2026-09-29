@@ -45,9 +45,16 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  // The project action itself succeeded; only the Pangolin resource sync failed
+  const warnPangolin = (result) => {
+    if (result?.pangolin?.ok === false) {
+      alert(`Pangolin sync failed: ${result.pangolin.error}`);
+    }
+  };
+
   const handleUpdateConfig = async (name, overrides) => {
     try {
-      await updateProjectConfig(name, overrides);
+      warnPangolin(await updateProjectConfig(name, overrides));
       await loadProjects();
     } catch (err) {
       alert(err.message);
@@ -65,8 +72,9 @@ function Dashboard() {
 
   const handleCreate = async (name, overrides, overwrite = false) => {
     try {
-      await createProject(name, overrides, overwrite);
+      const result = await createProject(name, overrides, overwrite);
       setIsModalOpen(false);
+      warnPangolin(result);
       await loadProjects();
     } catch (err) {
       throw err; // throw so modal can catch and display error
@@ -98,7 +106,7 @@ function Dashboard() {
   const handleDelete = async (name) => {
     setProjects(projects.filter(p => p.name !== name));
     try {
-      await deleteProject(name);
+      warnPangolin(await deleteProject(name));
       await loadProjects();
     } catch (err) {
       alert(err.message);
