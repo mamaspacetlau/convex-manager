@@ -16,6 +16,7 @@ A self-hosted project manager for [Convex](https://convex.dev/). This tool allow
 - **Dashboard Integration**: One-click access to the Convex Dashboard for each instance.
 - **Real-time Status**: Live status updates and log streaming.
 - **Configuration Overrides**: Customize Convex instance environment variables (e.g., Auth, Auth0, Clerk integration).
+- **Reverse Proxy Support**: Expose projects on your own domains through [Traefik](#using-a-reverse-proxy-traefik) or [Pangolin](#using-pangolin).
 
 ## Screenshots
 
@@ -182,6 +183,142 @@ When creating or editing a project in the Convex Manager UI, add the following k
 }
 ```
 *Note: You only need to provide the raw domain names. The backend automatically wraps them in `Host()` rules. You do not need to provide all three rules. Only the services you specify a rule for will be exposed via Traefik.*
+
+### Using Pangolin
+
+If you run [Pangolin](https://pangolin.net/) (self-hosted) on the same server, use `docker-compose.pangolin.yml`. Everything joins Pangolin's `pangolin` Docker network, so **no host ports are published**: Pangolin reaches the manager and every Convex project by container name.
+
+The manager creates each project's Pangolin resources for you through the Pangolin Integration API. This works with any site type, including the **local** site of a self-hosted install.
+
+#### 1. Enable the Pangolin Integration API
+
+The Integration API is off by default on self-hosted Pangolin. In Pangolin's `config/config.yml`, add (or extend your existing `flags:` section):
+
+```yaml
+flags:
+  enable_integration_api: true
+```
+
+Then restart Pangolin:
+
+```bash
+docker compose restart pangolin
+```
+
+You do **not** need to expose the API publicly. The manager calls it directly over the Docker network at `http://pangolin:3003`.
+
+#### 2. Create an API key and collect your IDs
+
+In the Pangolin dashboard:
+
+| Value | Where to find it |
+|---|---|
+| **API key** | Organization → **API Keys** → create a key with blueprint and resource permissions. Copy the full key (`<id>.<secret>`). |
+| **Org ID** | The first path segment of the dashboard URL: `https://pangolin.yourdomain.com/<orgId>/...` |
+| **Site identifier** | Organization → **Sites** → the site that can reach the manager's containers (usually the **local** site on the same server). Use its **Identifier** (e.g. `thirsty-calamaria-gervaisii`), not its display name, domain, or numeric ID. |
+
+#### 3. Configure and start Convex Manager
+
+```bash
+git clone https://github.com/mamaspacetlau/convex-manager.git
+cd convex-manager
+cp .env.example .env
+```
+
+Add to `.env` (alongside `JWT_SECRET`, SMTP settings, etc.):
+
+```env
+APP_URL=https://manager.yourdomain.com
+
+PANGOLIN_API_URL=http://pangolin:3003   # Pangolin container name + integration port; no /v1
+PANGOLIN_API_KEY=<id>.<secret>
+PANGOLIN_ORG_ID=<orgId>
+PANGOLIN_SITE=<site identifier>
+```
+
+Start the stack:
+
+```bash
+docker compose -f docker-compose.pangolin.yml up -d
+```
+
+*The compose file expects the external `pangolin` network created by the Pangolin installer. Check with `docker network ls | grep pangolin`.*
+
+#### 4. Verify the connection
+
+This checks the API, key, org and site in one request. It should print JSON with `"success":true`:
+
+```bash
+KEY=$(grep '^PANGOLIN_API_KEY=' .env | cut -d= -f2)
+docker exec convex-manager-backend wget -qO- \
+  --header "Authorization: Bearer $KEY" \
+  "http://pangolin:3003/v1/org/<orgId>/site/<site identifier>"
+```
+
+| Result | Meaning |
+|---|---|
+| `bad address 'pangolin'` | The manager isn't on the same Docker network as Pangolin, or the container has a different name. |
+| Connection refused | `enable_integration_api` is not active. Check `config.yml` and restart Pangolin. |
+| `401` / `403` | The API key is wrong or missing permissions. |
+| `404` | Wrong org ID or site identifier. List your sites with `.../v1/org/<orgId>/sites`. |
+
+#### 5. Expose the manager itself
+
+In the Pangolin dashboard, create an HTTP resource for the manager UI (for example `manager.yourdomain.com`) on your site, targeting `convex-manager-frontend` port `80`.
+
+#### 6. Expose Convex projects
+
+When creating a project (or later in **Project Settings**), enable **Pangolin Reverse Proxy** and enter the domains you want:
+
+| Field | Pangolin resource | Target |
+|---|---|---|
+| Backend Domain | `<project> (Convex backend)` | `backend-<project>:3210` |
+| Site Domain | `<project> (Convex site)` | `backend-<project>:3211` |
+| Dashboard Domain | `<project> (Convex dashboard)` | `dashboard-<project>:6791` |
+
+- Only the domains you fill in become resources, and the Convex origin URLs are set to `https://<domain>` automatically.
+- Backend and site resources are always public, because Convex clients and HTTP actions must reach them. Tick **Protect dashboard with Pangolin SSO** to put the dashboard behind Pangolin login.
+- Domains must be under a base domain configured in Pangolin, and must be unique per project (e.g. `myproject-api.yourdomain.com`, not a shared `api.yourdomain.com`).
+
+The manager keeps Pangolin in sync:
+
+- **Create project**: resources are created.
+- **Save settings**: resources are updated. Clearing a domain or disabling Pangolin deletes the matching resource.
+- **Delete project**: its resources are deleted.
+
+If a sync fails, the project action still completes, the UI shows a `Pangolin sync failed` alert, and details are logged:
+
+```bash
+docker logs convex-manager-backend 2>&1 | grep Pangolin
+```
+
+A successful sync logs `[Pangolin] <project>: applied [...]`.
+
+#### Alternative: container labels (Newt sites)
+
+If you leave the `PANGOLIN_API_*` variables empty, the manager instead adds Pangolin blueprint labels (`pangolin.public-resources.*`) to each project's containers. These are only read by a **Newt** site that has Docker socket access and shares the `pangolin` network:
+
+```yaml
+    # in your Newt service
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DOCKER_SOCKET=/var/run/docker.sock
+```
+
+Local sites ignore labels, so a Pangolin **404 page not found** on a project domain usually means the labels were never picked up. Use the Integration API instead.
+
+#### Configuration reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `PANGOLIN_API_URL` | *(empty)* | Pangolin Integration API base URL, without `/v1`. |
+| `PANGOLIN_API_KEY` | *(empty)* | Integration API key (`<id>.<secret>`). |
+| `PANGOLIN_ORG_ID` | *(empty)* | Pangolin organization ID. |
+| `PANGOLIN_SITE` | *(empty)* | Identifier of the site whose targets reach the project containers. |
+| `PROJECTS_NETWORK` | `convex-manager` | Docker network that project containers join. Set to `pangolin` in `docker-compose.pangolin.yml`. |
+
+The API is used only when all four `PANGOLIN_*` variables are set.
 
 ### Managing the Stack
 
